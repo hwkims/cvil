@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pokemon Stay</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { width: 100%; height: 100vh; } /* Full screen */
+        #api-key-input { position: absolute; top: 10px; left: 10px; z-index: 1000; padding: 5px; background-color: rgba(255,255,255,0.8); }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="api-key-input">
+        Gemini API Key: <input type="text" id="api-key" placeholder="Enter your API key">
+        <button onclick="saveApiKey()">Save</button>
+    </div>
+
+    <script>
+      // --- 지도 초기화 ---
+      const map = L.map('map').setView([0, 0], 2); // 초기 위치, 줌 레벨
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
+
+      // --- 변수 ---
+      let playerMarker = null;
+      const pokemonEmojis = ['🐛', '🦋', '🐞', '🌱', '🍄', '✨'];
+      let apiKey = localStorage.getItem('geminiApiKey') || '';
+
+      // --- API 키 저장 ---
+      function saveApiKey() {
+          apiKey = document.getElementById('api-key').value;
+          localStorage.setItem('geminiApiKey', apiKey);
+          alert('API Key saved!');
+      }
+
+      if(apiKey) {  // api key 있으면 input 안보이게.
+        document.getElementById("api-key-input").style.display = "none";
+      }
+
+
+        // --- 현재 위치 가져오기 ---
+        function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(showPosition, showError);
+            } else {
+                alert("Geolocation is not supported by this browser.");
+            }
+        }
+
+        // --- 위치 정보 표시 ---
+        function showPosition(position) {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+
+            if (!playerMarker) {
+                playerMarker = L.marker([lat, lng], {icon: L.divIcon({className: 'my-div-icon', html: '🚶'})}).addTo(map);
+            } else {
+                playerMarker.setLatLng([lat, lng]);
+            }
+            map.setView([lat, lng], 15); // Zoom to player's location
+            spawnPokemon(lat, lng);
+        }
+
+        function showError(error) {
+           switch(error.code) {
+              case error.PERMISSION_DENIED:
+                alert("User denied the request for Geolocation.")
+                break;
+              case error.POSITION_UNAVAILABLE:
+                alert("Location information is unavailable.")
+               break;
+              case error.TIMEOUT:
+                alert("The request to get user location timed out.")
+                break;
+              case error.UNKNOWN_ERROR:
+                alert("An unknown error occurred.")
+                break;
+            }
+          }
+
+      // --- 포켓몬 생성 ---
+      function spawnPokemon(lat, lng) {
+          // Remove old Pokemon markers
+          map.eachLayer(layer => {
+              if (layer instanceof L.Marker && layer !== playerMarker) {
+                  map.removeLayer(layer);
+              }
+          });
+
+          // Spawn new Pokemon
+          for (let i = 0; i < 5; i++) {
+              const randomLat = lat + (Math.random() - 0.5) * 0.02; // Adjust range as needed
+              const randomLng = lng + (Math.random() - 0.5) * 0.02;
+              const randomEmoji = pokemonEmojis[Math.floor(Math.random() * pokemonEmojis.length)];
+
+              L.marker([randomLat, randomLng], {icon: L.divIcon({className: 'my-div-icon', html: randomEmoji})}).addTo(map);
+                //.bindPopup("A pretty CSS3 popup.<br> Easily customizable."); // Add a popup
+          }
+          generatePokemonName(); // 포켓몬 이름 생성 (Gemini)
+      }
+
+      // --- Gemini API를 이용한 포켓몬 이름 생성 ---
+      async function generatePokemonName() {
+          if (!apiKey) {
+              alert("Please enter your Gemini API key.");
+              return;
+          }
+
+          const prompt = "Generate 3 creative Pokemon names:";
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+
+          try {
+              const response = await fetch(url, {
+                  method: 'POST',
+                  headers: {
+                      'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                      contents: [{
+                          parts: [{text: prompt}]
+                      }]
+                  })
+              });
+
+              const data = await response.json();
+
+              if (data.candidates && data.candidates.length > 0) {
+                  const generatedText = data.candidates[0].content.parts[0].text;
+                  console.log("Generated Pokemon Names:", generatedText); // Show generated names
+                   // TODO: 생성된 이름을 게임 내에서 활용 (예: 포켓몬에 이름 붙이기, 화면에 표시 등)
+                  const popupContent = `<b>Generated Pokemon Names</b><br>${generatedText.replace(/\n/g, '<br>')}`;
+
+                  // Display as popup.
+                  L.popup()
+                    .setLatLng(map.getCenter())
+                    .setContent(popupContent)
+                    .openOn(map);
+
+
+              } else {
+                  console.error("Error generating Pokemon names:", data);
+              }
+          } catch (error) {
+              console.error("Error fetching from Gemini API:", error);
+              alert("Error fetching from Gemini API. Please check your API key and network connection."); //에러 알림
+          }
+      }
+
+      // --- 시작 ---
+      getLocation();
+
+    </script>
+</body>
+</html>
